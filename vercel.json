@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "Physics_simulation_02.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "Physics_simulation_02.py"
+    }
+  ]
+}
