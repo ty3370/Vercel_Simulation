@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 
 const SYSTEM_PROMPT = `
 당신은 고등학생의 물리학 시뮬레이션 생성 도우미 역할을 합니다.
@@ -19,7 +19,8 @@ const SYSTEM_PROMPT = `
 
 export async function POST(req) {
   try {
-    const { action, number, name, code, topic, userPrompt, messages } = await req.json();
+    const body = await req.json();
+    const { action, number, name, code, topic, userPrompt, messages } = body;
 
     if (action === 'get_topics') {
       const { rows } = await sql`
@@ -38,21 +39,20 @@ export async function POST(req) {
     }
 
     if (action === 'send_chat') {
-      const history = messages.map(m => ({
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        systemInstruction: SYSTEM_PROMPT
+      });
+
+      const history = (messages || []).map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       }));
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          ...history,
-          { role: 'user', parts: [{ text: userPrompt }] }
-        ],
-        config: { systemInstruction: SYSTEM_PROMPT }
-      });
+      const chatSession = model.startChat({ history });
+      const result = await chatSession.sendMessage(userPrompt);
+      const assistantText = result.response.text();
 
-      const assistantText = response.text;
       const updatedMessages = [
         ...messages,
         { role: 'user', content: userPrompt },
@@ -78,6 +78,8 @@ export async function POST(req) {
       `;
       return Response.json({ success: true });
     }
+
+    return Response.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
