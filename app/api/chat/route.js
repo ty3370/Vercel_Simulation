@@ -35,18 +35,23 @@ export async function POST(req) {
         SELECT chat FROM qna_unique 
         WHERE number = ${number} AND name = ${name} AND code = ${code} AND topic = ${topic};
       `;
-      return Response.json({ chat: rows.length > 0 ? rows[0].chat : [] });
+      let chatData = [];
+      if (rows.length > 0 && rows[0].chat) {
+        chatData = typeof rows[0].chat === 'string' ? JSON.parse(rows[0].chat) : rows[0].chat;
+      }
+      return Response.json({ chat: chatData });
     }
 
     if (action === 'send_chat') {
+      // 최신 모델 gemini-2.5-flash로 적용
       const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         systemInstruction: SYSTEM_PROMPT
       });
 
       const history = (messages || []).map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
+        parts: [{ text: String(m.content || '') }]
       }));
 
       const chatSession = model.startChat({ history });
@@ -54,7 +59,7 @@ export async function POST(req) {
       const assistantText = result.response.text();
 
       const updatedMessages = [
-        ...messages,
+        ...(messages || []),
         { role: 'user', content: userPrompt },
         { role: 'assistant', content: assistantText }
       ];
@@ -82,6 +87,7 @@ export async function POST(req) {
     return Response.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error) {
+    console.error('API Error:', error);
     return Response.json({ error: error.message }, { status: 500 });
   }
 }
