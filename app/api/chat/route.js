@@ -43,23 +43,42 @@ export async function POST(req) {
     }
 
     if (action === 'send_chat') {
-      // 최신 모델 gemini-2.5-flash로 적용
+      if (!process.env.GOOGLE_API_KEY) {
+        throw new Error('GOOGLE_API_KEY 환경 변수가 설정되지 않았습니다.');
+      }
+
+      // 안정적인 gemini-2.5-flash 모델 적용
       const model = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
         systemInstruction: SYSTEM_PROMPT
       });
 
-      const history = (messages || []).map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: String(m.content || '') }]
-      }));
+      const rawMessages = Array.isArray(messages) ? messages : [];
+      const contents = [];
 
-      const chatSession = model.startChat({ history });
-      const result = await chatSession.sendMessage(userPrompt);
+      // 기존 대화 내역 포맷팅
+      for (const m of rawMessages) {
+        const role = m.role === 'assistant' ? 'model' : 'user';
+        const text = String(m.content || '').trim();
+        if (!text) continue;
+
+        if (contents.length === 0 && role === 'model') continue;
+
+        if (contents.length > 0 && contents[contents.length - 1].role === role) {
+          contents[contents.length - 1].parts[0].text += `\n${text}`;
+        } else {
+          contents.push({ role, parts: [{ text }] });
+        }
+      }
+
+      // 새로 들어온 유저 프롬프트 추가
+      contents.push({ role: 'user', parts: [{ text: userPrompt }] });
+
+      const result = await model.generateContent({ contents });
       const assistantText = result.response.text();
 
       const updatedMessages = [
-        ...(messages || []),
+        ...rawMessages,
         { role: 'user', content: userPrompt },
         { role: 'assistant', content: assistantText }
       ];
@@ -87,7 +106,7 @@ export async function POST(req) {
     return Response.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('[API Error Detail]:', error.message);
     return Response.json({ error: error.message }, { status: 500 });
   }
 }
